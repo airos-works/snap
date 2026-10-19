@@ -61,9 +61,12 @@ scratch as GLSL shaders that run live, 60 times a second, on your own GPU.
   test scene.
 
 Snap needs a graphics card with hardware 3D acceleration and OpenGL 3.1
-(GLSL 1.40). On a computer that draws OpenGL in software it explains why
-and quits. It runs on any Haiku with such a GPU; on air/OS that is AMD
-(radeonsi), NVIDIA (Zink on NVK), the ROCK 5 (Panfrost) and the Pi 4 (V3D).
+(GLSL 1.40). On a computer that draws OpenGL in software, or with an older
+OpenGL, it explains why and quits; it checks when it starts. It runs on any
+Haiku with such a GPU. On air/OS it was tested on AMD graphics (radeonsi,
+60 frames a second on a Radeon 760M); NVIDIA cards (Zink on NVK) and the
+ARM boards (Panfrost on the ROCK 5, V3D on the Pi 4, Zink on the Cubie)
+qualify where their drivers offer OpenGL 3.1.
 
 ### Scripting
 
