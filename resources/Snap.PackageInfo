@@ -1,0 +1,17 @@
+name snap
+version 1.0.0-1
+architecture x86_64
+summary "Photo booth with live GPU effects that react to sound"
+description "Snap shows the camera's picture through live effects drawn by the graphics card - an old CRT television, flames rising from whatever moves, liquid chrome, a thermal camera, pop art, neon outlines, a time warp, text mode and more - and takes photos of them. Several effects react to the sound around you or to music Snap plays. Snap is a demo of Haiku's APIs: the Media Kit for camera and sound, the OpenGL Kit for the effects, the Game Kit, the Translation Kit, attributes and the node monitor for the photos, and scripting. It needs a graphics card with hardware 3D acceleration and OpenGL 3.1."
+packager "air/OS contributors"
+vendor "air/OS"
+copyrights { "2026 air/OS contributors" }
+licenses { "MIT" }
+provides {
+	snap = 1.0.0
+	app:Snap = 1.0.0
+}
+requires {
+	haiku >= r1~beta5
+	lib:libGL
+}
