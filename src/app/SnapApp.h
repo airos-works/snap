@@ -18,9 +18,6 @@ namespace snap {
 extern const char* kAppSignature;
 
 
-class SnapWindow;
-
-
 // The application: checks that the computer can draw the effects, then
 // opens the window. A camera serves one program at a time, so Snap is
 // B_SINGLE_LAUNCH (see Snap.rdef): launching it again brings this one up.
@@ -40,7 +37,8 @@ private:
 
 			Settings			fSettings;
 			GPUInfo				fGPU;
-			SnapWindow*			fWindow;
+			BMessenger			fWindow;		// invalid once it closed
+			BMessage			fLaunchRefs;	// files opened with Snap
 };
 
 

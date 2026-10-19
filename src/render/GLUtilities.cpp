@@ -198,7 +198,7 @@ Texture::Allocate(int width, int height, GLenum internalFormat, bool mipmaps)
 
 	if (fTexture == 0)
 		glGenTextures(1, &fTexture);
-	glBindTexture(GL_TEXTURE_2D, fTexture);
+	BindForUpdate(GL_TEXTURE_2D, fTexture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
 		mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -223,7 +223,7 @@ Texture::Allocate(int width, int height, GLenum internalFormat, bool mipmaps)
 void
 Texture::UploadBGRA(const void* pixels, int bytesPerRow)
 {
-	glBindTexture(GL_TEXTURE_2D, fTexture);
+	BindForUpdate(GL_TEXTURE_2D, fTexture);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, bytesPerRow / 4);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, fWidth, fHeight, GL_BGRA,
@@ -237,7 +237,7 @@ Texture::UploadBGRA(const void* pixels, int bytesPerRow)
 void
 Texture::UploadFloats(const float* values)
 {
-	glBindTexture(GL_TEXTURE_2D, fTexture);
+	BindForUpdate(GL_TEXTURE_2D, fTexture);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, fWidth, fHeight, GL_RED,
 		GL_FLOAT, values);
@@ -323,7 +323,7 @@ RenderTarget::GenerateMipmaps() const
 {
 	if (!fTexture.HasMipmaps())
 		return;
-	glBindTexture(GL_TEXTURE_2D, fTexture.Id());
+	BindForUpdate(GL_TEXTURE_2D, fTexture.Id());
 	glGenerateMipmap(GL_TEXTURE_2D);
 }
 
@@ -358,6 +358,19 @@ FramebufferScope::~FramebufferScope()
 
 
 // #pragma mark -
+
+
+// The last unit OpenGL 3.1 guarantees a fragment shader (16); effects use
+// the first few.
+static const int kScratchTextureUnit = 15;
+
+
+void
+BindForUpdate(GLenum target, GLuint texture)
+{
+	glActiveTexture(GL_TEXTURE0 + kScratchTextureUnit);
+	glBindTexture(target, texture);
+}
 
 
 bool

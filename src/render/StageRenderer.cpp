@@ -45,6 +45,7 @@ static const rgb_color kBlack = { 0, 0, 0, 255 };
 
 static const bigtime_t kToastDuration = 1600000;
 static const bigtime_t kFlashDuration = 450000;
+static const bigtime_t kPhotoSettleTime = 500000;
 
 
 StageState::StageState()
@@ -80,6 +81,7 @@ StageRenderer::StageRenderer(FrameExchange& frames, SoundAnalysis& sound,
 	fVertexArray(0),
 	fCurrentCamera(0),
 	fHasPicture(false),
+	fShowingPlaceholder(false),
 	fHistoryInUse(false),
 	fLastBeatCount(0),
 	fLastBeatTime(0),
@@ -88,7 +90,7 @@ StageRenderer::StageRenderer(FrameExchange& frames, SoundAnalysis& sound,
 	fFrameNumber(1),
 	fStartTime(system_time()),
 	fLastFrame(0),
-	fPhotoRequest(0),
+	fPhotoTaken(0),
 	fLiveShaders(getenv("SNAP_SHADER_DIR") != NULL),
 	fViewWidth(0),
 	fViewHeight(0),
@@ -136,6 +138,7 @@ StageRenderer::Init(BString& error)
 		slot->effect = CreateEffect(i);
 		slot->lastFrame = 0;
 		slot->shownSince = 0;
+		slot->sizedSince = 0;
 		BString effectError;
 		slot->ready = slot->effect->Prepare(fShaders, effectError) == B_OK;
 		if (!slot->ready)
@@ -171,8 +174,8 @@ StageRenderer::Render(const StageState& state, int width, int height)
 	_Layout(state, width, height);
 	_RenderEffects(state, now, delta, newPicture);
 
-	if (state.photoRequest != fPhotoRequest) {
-		fPhotoRequest = state.photoRequest;
+	if (state.photoRequest > fPhotoTaken && _ReadyForPhoto(state, now)) {
+		fPhotoTaken = state.photoRequest;
 		_TakePhoto(state);
 	}
 
@@ -222,42 +225,63 @@ StageRenderer::_UpdateCamera(const StageState& state, bigtime_t now)
 		current.Resize(frame->width, frame->height, GL_RGBA8, true);
 		current.ColorTexture().UploadBGRA(frame->pixels.data(),
 			frame->bytesPerRow);
-		// The very first picture (or a new size): no motion yet.
+		// The camera's first picture (or a new size): it is its own
+		// "previous", so nothing seems to move.
 		RenderTarget& previous = fCamera[fCurrentCamera ^ 1];
-		if (!fHasPicture || previous.Width() != frame->width
+		if (fShowingPlaceholder || !fHasPicture
+			|| previous.Width() != frame->width
 			|| previous.Height() != frame->height) {
 			previous.Resize(frame->width, frame->height, GL_RGBA8, true);
 			previous.ColorTexture().UploadBGRA(frame->pixels.data(),
 				frame->bytesPerRow);
 		}
+		if (fShowingPlaceholder || !fHasPicture)
+			_PictureSourceChanged(now);
+		fShowingPlaceholder = false;
 		fHasPicture = true;
 		return true;
 	}
 
 	if (state.placeholder) {
-		// The stand-in scene, drawn anew every frame like a camera picture.
-		fCurrentCamera ^= 1;
-		RenderTarget& current = fCamera[fCurrentCamera];
-		current.Resize(kPlaceholderWidth, kPlaceholderHeight, GL_RGBA8, true);
-		if (!fCamera[fCurrentCamera ^ 1].IsValid()
-			|| fCamera[fCurrentCamera ^ 1].Width() != kPlaceholderWidth) {
-			fCamera[fCurrentCamera ^ 1].Resize(kPlaceholderWidth,
-				kPlaceholderHeight, GL_RGBA8, true);
+		// The stand-in scene, drawn anew every frame like a camera picture
+		// (into both pictures the first time, so nothing seems to move).
+		const bool first = !fShowingPlaceholder || !fHasPicture;
+		for (int i = 0; i < (first ? 2 : 1); i++) {
+			fCurrentCamera ^= 1;
+			RenderTarget& current = fCamera[fCurrentCamera];
+			current.Resize(kPlaceholderWidth, kPlaceholderHeight, GL_RGBA8,
+				true);
+			current.Bind();
+			fPlaceholderProgram.Use();
+			EffectContext context = {};
+			context.cameraWidth = kPlaceholderWidth;
+			context.cameraHeight = kPlaceholderHeight;
+			context.time = (now - fStartTime) / 1000000.0f;
+			context.Apply(fPlaceholderProgram, kPlaceholderWidth,
+				kPlaceholderHeight);
+			DrawRectangle();
+			current.GenerateMipmaps();
 		}
-		current.Bind();
-		fPlaceholderProgram.Use();
-		EffectContext context = {};
-		context.cameraWidth = kPlaceholderWidth;
-		context.cameraHeight = kPlaceholderHeight;
-		context.time = (now - fStartTime) / 1000000.0f;
-		context.Apply(fPlaceholderProgram, kPlaceholderWidth,
-			kPlaceholderHeight);
-		DrawRectangle();
-		current.GenerateMipmaps();
+		if (first)
+			_PictureSourceChanged(now);
+		fShowingPlaceholder = true;
 		fHasPicture = true;
 		return true;
 	}
 	return false;
+}
+
+
+void
+StageRenderer::_PictureSourceChanged(bigtime_t now)
+{
+	// What the effects remember (flames, trails, the past) belongs to the
+	// pictures that came before: start them all afresh.
+	fHistoryInUse = false;
+	for (std::unique_ptr<Slot>& slot : fSlots) {
+		slot->effect->Reset();
+		slot->shownSince = now;
+	}
 }
 
 
@@ -366,11 +390,12 @@ StageRenderer::_RenderEffects(const StageState& state, bigtime_t now,
 	bool needHistory = false;
 	for (int32 index : shown)
 		needHistory |= fSlots[index]->ready && fSlots[index]->effect->NeedsHistory();
-	if (needHistory && newPicture) {
-		if (!fHistoryInUse)
-			fHistory.Clear();
+	if (needHistory && !fHistoryInUse) {
+		// Back on screen: only the pictures from now on.
+		fHistory.Clear();
 		fHistory.Push(camera);
-	}
+	} else if (needHistory && newPicture)
+		fHistory.Push(camera);
 	fHistoryInUse = needHistory;
 
 	EffectContext context;
@@ -421,7 +446,8 @@ StageRenderer::_RenderEffects(const StageState& state, bigtime_t now,
 			width = std::min(camera.Width(), kMaxStageWidth);
 			height = std::max(16, camera.Height() * width / camera.Width());
 		}
-		slot.output.Resize(width, height);
+		if (slot.output.Resize(width, height))
+			slot.sizedSince = now;
 
 		context.effectTime = (now - slot.shownSince) / 1000000.0f;
 		slot.effect->Render(context, slot.output);
@@ -429,11 +455,30 @@ StageRenderer::_RenderEffects(const StageState& state, bigtime_t now,
 }
 
 
+bool
+StageRenderer::_ReadyForPhoto(const StageState& state, bigtime_t now) const
+{
+	// A photo is of the effect on the big stage, and only once it has been
+	// there for a moment: when it came from the grid, its picture was made
+	// anew at the stage's size, and an effect with a memory (the flames,
+	// the trails) needs a little time to build it up again.
+	if (state.grid || state.effect < 0 || state.effect >= (int32)fSlots.size())
+		return false;
+	const Slot& slot = *fSlots[state.effect];
+	if (!slot.ready)
+		return true;	// answered with an error by _TakePhoto()
+	const bigtime_t since = std::max(slot.sizedSince, slot.shownSince);
+	return slot.output.IsValid() && now - since >= kPhotoSettleTime;
+}
+
+
 void
 StageRenderer::_TakePhoto(const StageState& state)
 {
 	BMessage failed(kMsgPhotoFailed);
+	failed.AddInt32("id", state.photoRequest);
 	if (state.effect < 0 || state.effect >= (int32)fSlots.size()
+		|| !fSlots[state.effect]->ready
 		|| !fSlots[state.effect]->output.IsValid()) {
 		failed.AddString("error", "There is no picture to take yet.");
 		fTarget.SendMessage(&failed);
@@ -469,6 +514,7 @@ StageRenderer::_TakePhoto(const StageState& state)
 	BMessage message(kMsgPhotoTaken);
 	message.AddPointer("bitmap", bitmap);
 	message.AddString("effect", EffectAt(state.effect).id);
+	message.AddInt32("id", state.photoRequest);
 	if (fTarget.SendMessage(&message) != B_OK)
 		delete bitmap;
 }

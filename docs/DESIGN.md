@@ -61,8 +61,11 @@ The render thread (`StageView::_RenderLoop()`) runs this 60 times a second:
       `RenderTarget`: at the camera's resolution on the stage (that picture
       *is* the photo), at the cell's size in the grid. An effect that was
       not on screen the frame before is `Reset()` first.
-   5. **Photo**: if one was asked for, `glReadPixels()` the effect's target
-      into a `BBitmap` and post it to the window (`kMsgPhotoTaken`).
+   5. **Photo**: if one was asked for and the effect has been on the big
+      stage for half a second (an effect coming from the grid is drawn anew
+      at the stage's size, and the flames or trails need a moment to build
+      up), `glReadPixels()` its target into a `BBitmap` and post it to the
+      window (`kMsgPhotoTaken`, with the photo's id).
    6. **Composite**: the target(s) onto the view, then labels, the
       countdown, the status line and the flash, alpha-blended.
 3. `SwapBuffers()`, `UnlockGL()`, and sleep until the next 1/60 s.
@@ -178,6 +181,15 @@ does the strip, whose thumbnails come from the same attribute.
 - **Offscreen `B_RGBA32` bitmaps have no reliable alpha** in app_server, so
   text for OpenGL is drawn white on black into `B_RGB32` and the red channel
   is used as coverage.
+- **Answers from threads that were given up.** Starting the camera or the
+  microphone reports back by message; when the user switches again before
+  the report is handled, it would undo the switch. Every start (and stop)
+  bumps a generation number, reports carry it, and the window ignores old
+  ones. Photos carry ids the same way, so that `hey Snap do Photo` is
+  answered by the photo taken for it.
+- **Texture uploads disturb texture units.** Creating or filling a texture
+  binds it; done on the unit an effect reads the sound from, it would
+  replace that input. `BindForUpdate()` does it on a scratch unit.
 - **A scripting target in another looper** cannot be returned from
   `ResolveSpecifier()` (`BLooper` drops it); `SnapApp` sends the message on
   to the window, as `BApplication` does for "Window" specifiers.

@@ -7,8 +7,10 @@
 
 
 #include <Locker.h>
+#include <MediaDefs.h>
 #include <MediaNode.h>
 #include <Messenger.h>
+#include <String.h>
 
 
 class BMediaRecorder;
@@ -20,8 +22,9 @@ namespace snap {
 class SoundAnalysis;
 
 
-// The microphone (the system's default sound input, as set in Media
-// preferences) feeding the effects. A BMediaRecorder - the Media Kit's
+// A microphone feeding the effects: the sound input chosen in Snap's Sound
+// menu (a camera's own microphone, say), else the system's default input as
+// set in Media preferences. A BMediaRecorder - the Media Kit's
 // ready-made consumer node - is connected to the input node and hands every
 // buffer to a hook function, which passes it on to the SoundAnalysis. Nothing
 // is recorded or kept.
@@ -35,8 +38,12 @@ public:
 									const BMessenger& target);
 								~MicrophoneInput();
 
-			void				Start();
+			void				Start(const char* preferredInput);
 			void				Stop();
+
+	// Counts the attempts to start; reports (kMsgSoundStatus) carry the one
+	// they belong to, so the window can ignore those of an attempt given up.
+			int32				Generation() const { return fGeneration; }
 
 private:
 	static	status_t			_StartThread(void* data);
@@ -51,8 +58,10 @@ private:
 			BLocker				fLock;
 			BMediaRecorder*		fRecorder;
 			media_node			fInput;
-			bool				fHasInput;
+			bool				fStartedInput;	// Snap started its node
+			BString				fPreferredInput;
 			thread_id			fStartThread;
+			int32				fGeneration;
 };
 
 

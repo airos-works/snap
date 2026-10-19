@@ -132,10 +132,10 @@ StageView::Flash()
 
 
 void
-StageView::RequestPhoto()
+StageView::RequestPhoto(int32 id)
 {
 	BAutolock _(fStateLock);
-	fState.photoRequest++;
+	fState.photoRequest = id;
 }
 
 
@@ -325,13 +325,15 @@ StageView::_RenderLoop()
 
 	bigtime_t next = system_time();
 	while (atomic_get(&fQuitting) == 0) {
-		if (atomic_get(&fPaused) != 0) {
+		const StageState state = State();
+		// Minimized, frames are only drawn to take a photo asked for.
+		if (atomic_get(&fPaused) != 0
+			&& renderer->PhotoTaken() >= state.photoRequest) {
 			snooze(100000);
 			next = system_time();
 			continue;
 		}
 
-		const StageState state = State();
 		const int width = atomic_get(&fWidth);
 		const int height = atomic_get(&fHeight);
 

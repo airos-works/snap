@@ -39,7 +39,8 @@ CameraSource::CameraSource(FrameExchange& frames, const BMessenger& target)
 	fTarget(target),
 	fLock("camera source"),
 	fRecorder(NULL),
-	fStartThread(-1)
+	fStartThread(-1),
+	fGeneration(0)
 {
 }
 
@@ -56,6 +57,7 @@ CameraSource::Start(const media_node& node, const char* name)
 	Stop();
 	fNode = node;
 	fName = name;
+	fGeneration++;
 	fStartThread = spawn_thread(&_StartThread, "Snap camera start",
 		B_NORMAL_PRIORITY, this);
 	if (fStartThread >= 0)
@@ -71,6 +73,8 @@ CameraSource::Stop()
 		wait_for_thread(fStartThread, &result);
 		fStartThread = -1;
 	}
+	// What the start thread reported is out of date now.
+	fGeneration++;
 
 	BMediaRecorder* recorder;
 	{
@@ -200,6 +204,7 @@ CameraSource::_Report(uint32 what, const char* error)
 {
 	BMessage message(what);
 	message.AddString("name", fName);
+	message.AddInt32("generation", fGeneration);
 	if (error != NULL)
 		message.AddString("error", error);
 	fTarget.SendMessage(&message);

@@ -147,6 +147,7 @@ PhotoStrip::Draw(BRect updateRect)
 		return;
 	}
 
+	_RequestThumbnails(updateRect);
 	for (int32 i = 0; i < (int32)fItems.size(); i++) {
 		const BRect frame = _ItemFrame(i);
 		if (!frame.Intersects(updateRect))
@@ -257,7 +258,6 @@ PhotoStrip::_Rescan()
 			fSelected = i;
 	}
 	_UpdateScrollBar();
-	_RequestThumbnails();
 	Invalidate();
 }
 
@@ -289,19 +289,24 @@ PhotoStrip::PhotoAdded(const entry_ref& ref)
 			if (fItems[i].thumbnail == NULL)
 				fItems[i].requested = false;
 			_Select(i);
+			Invalidate(_ItemFrame(i));
 			break;
 		}
 	}
-	_RequestThumbnails();
 }
 
 
 void
-PhotoStrip::_RequestThumbnails()
+PhotoStrip::_RequestThumbnails(BRect area)
 {
-	for (Item& item : fItems) {
-		if (item.thumbnail != NULL || item.requested)
+	// Only for photos in the area being drawn: a folder of hundreds of photos
+	// does not keep the library's thread busy with thumbnails nobody sees.
+	for (int32 i = 0; i < (int32)fItems.size(); i++) {
+		Item& item = fItems[i];
+		if (item.thumbnail != NULL || item.requested
+			|| !_ItemFrame(i).Intersects(area)) {
 			continue;
+		}
 		BMessage request(kMsgLoadThumbnail);
 		request.AddRef("refs", &item.ref);
 		request.AddMessenger("target", BMessenger(this));

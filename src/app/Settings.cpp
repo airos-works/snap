@@ -77,6 +77,7 @@ Settings::Load()
 		soundSource = (SoundSource)source;
 	musicPath = archive.GetString("music path", musicPath.String());
 	camera = archive.GetString("camera", camera.String());
+	microphone = archive.GetString("microphone", microphone.String());
 	windowFrame = archive.GetRect("window frame", windowFrame);
 	return B_OK;
 }
@@ -93,6 +94,7 @@ Settings::Save() const
 	archive.AddInt32("sound source", soundSource);
 	archive.AddString("music path", musicPath);
 	archive.AddString("camera", camera);
+	archive.AddString("microphone", microphone);
 	if (windowFrame.IsValid())
 		archive.AddRect("window frame", windowFrame);
 

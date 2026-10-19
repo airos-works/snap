@@ -16,6 +16,7 @@
 #include <MenuBar.h>
 #include <MenuField.h>
 #include <MenuItem.h>
+#include <MessageQueue.h>
 #include <MessageRunner.h>
 #include <NodeInfo.h>
 #include <Path.h>
@@ -113,6 +114,8 @@ SnapWindow::SnapWindow(Settings& settings, const BString& renderer)
 	fMusicPanel(NULL),
 	fCountdownRunner(NULL),
 	fCountdownLeft(0),
+	fCountdownPhotoId(0),
+	fLastPhotoId(0),
 	fEffect(NormalEffectIndex()),
 	fGrid(false),
 	fCameraRunning(false),
@@ -184,16 +187,19 @@ SnapWindow::~SnapWindow()
 	delete fMicrophone;
 	delete fMusic;
 	delete fSoundEffects;
-	if (fLibrary->Lock())
+	if (fLibrary->Lock()) {
+		// Photos still being saved are finished; thumbnails nobody will see
+		// are not loaded first.
+		BMessageQueue* queue = fLibrary->MessageQueue();
+		while (BMessage* request = queue->FindMessage(kMsgLoadThumbnail, 0)) {
+			queue->RemoveMessage(request);
+			delete request;
+		}
 		fLibrary->Quit();
+	}
 	delete fMusicPanel;
 
-	for (BMessage* request : fPhotoReplies) {
-		BMessage reply(B_REPLY);
-		reply.AddInt32("error", B_CANCELED);
-		request->SendReply(&reply);
-		delete request;
-	}
+	_AnswerPhotoRequests(INT32_MAX, NULL, "Snap quit.");
 	delete fFrames;
 	delete fSound;
 }
@@ -254,6 +260,11 @@ SnapWindow::_BuildMenuBar()
 	fSoundMenu->AddSeparatorItem();
 	fSoundMenu->AddItem(new BMenuItem("Choose Music" B_UTF8_ELLIPSIS,
 		new BMessage(kMsgChooseMusic)));
+	fSoundMenu->AddSeparatorItem();
+	// Filled each time the menus open: inputs come and go.
+	fSoundInputMenu = new BMenu("Microphone Input");
+	fSoundInputMenu->SetRadioMode(true);
+	fSoundMenu->AddItem(fSoundInputMenu);
 	menuBar->AddItem(fSoundMenu);
 
 	return menuBar;
@@ -362,6 +373,7 @@ SnapWindow::MenusBeginning()
 	fSoundMenu->ItemAt(0)->SetMarked(fSettings.soundSource == kSoundOff);
 	fSoundMenu->ItemAt(1)->SetMarked(fSettings.soundSource == kSoundMicrophone);
 	fSoundMenu->ItemAt(2)->SetMarked(fSettings.soundSource == kSoundMusic);
+	_UpdateSoundInputMenu();
 }
 
 
@@ -411,7 +423,7 @@ SnapWindow::MessageReceived(BMessage* message)
 			_PhotoSaved(message);
 			break;
 		case kMsgPhotoFailed:
-			_PhotoFailed(message->GetString("error", "The photo failed."));
+			_PhotoFailed(message);
 			break;
 		case kMsgOpenPhotoFolder:
 		{
@@ -439,12 +451,17 @@ SnapWindow::MessageReceived(BMessage* message)
 			break;
 		}
 		case kMsgCameraStarted:
+			// Reports of an attempt since given up are stale.
+			if (message->GetInt32("generation", -1) != fCamera->Generation())
+				break;
 			fCameraRunning = true;
 			fSettings.camera = message->GetString("name", "");
 			_CameraStatus("", false);
 			break;
 		case kMsgCameraFailed:
 		{
+			if (message->GetInt32("generation", -1) != fCamera->Generation())
+				break;
 			fCameraRunning = false;
 			BString status(message->GetString("error", ""));
 			status << " The effects run on a test scene.";
@@ -473,6 +490,11 @@ SnapWindow::MessageReceived(BMessage* message)
 		case kMsgSoundMicrophone:
 			_SetSoundSource(kSoundMicrophone);
 			break;
+		case kMsgSelectSoundInput:
+			// Takes effect at once when the microphone is on.
+			fSettings.microphone = message->GetString("name", "");
+			_SetSoundSource(kSoundMicrophone);
+			break;
 		case kMsgChooseMusic:
 			_ChooseMusic();
 			break;
@@ -488,14 +510,20 @@ SnapWindow::MessageReceived(BMessage* message)
 			break;
 		}
 		case kMsgSoundStatus:
+			if (message->GetInt32("generation", -1)
+					!= fMicrophone->Generation()) {
+				break;
+			}
 			fSoundStatus = message->GetString("status", "");
 			fMeter->SetActive(message->GetBool("listening", false));
 			fMeter->SetToolTip(fSoundStatus.String());
 			_UpdateStageStatus();
 			break;
 		case B_SIMPLE_DATA:
+		case B_REFS_RECEIVED:
 		{
-			// A sound file dropped on the window plays for the effects.
+			// A sound file dropped on the window (or opened with Snap)
+			// plays for the effects.
 			entry_ref ref;
 			for (int32 i = 0; message->FindRef("refs", i, &ref) == B_OK; i++) {
 				BNode node(&ref);
@@ -563,6 +591,9 @@ SnapWindow::_SelectEffect(int32 index)
 void
 SnapWindow::_SetGrid(bool grid)
 {
+	// During a countdown the photo's effect stays on the stage.
+	if (grid && fCountdownLeft > 0)
+		return;
 	fGrid = grid;
 	fStage->SetGrid(grid);
 	fEffectsButton->SetValue(grid ? B_CONTROL_ON : B_CONTROL_OFF);
@@ -572,21 +603,24 @@ SnapWindow::_SetGrid(bool grid)
 // #pragma mark - Photos
 
 
-void
+int32
 SnapWindow::_TakePhoto()
 {
+	// One photo at a time: during a countdown, asking again means that one.
 	if (fCountdownLeft > 0)
-		return;
+		return fCountdownPhotoId;
+	const int32 id = ++fLastPhotoId;
 	// A photo is of one effect, big.
 	_SetGrid(false);
 
 	if (!fSettings.countdown) {
-		_Capture();
-		return;
+		_Capture(id);
+		return id;
 	}
 
 	// 3, 2, 1: the stage shows the numbers, a BMessageRunner ticks.
 	fCountdownLeft = kCountdownSeconds;
+	fCountdownPhotoId = id;
 	fShutter->SetEnabled(false);
 	fStage->StartCountdown(kCountdownSeconds);
 	fSoundEffects->PlayTick(false);
@@ -594,6 +628,7 @@ SnapWindow::_TakePhoto()
 	delete fCountdownRunner;
 	fCountdownRunner = new BMessageRunner(BMessenger(this), &tick, 1000000,
 		kCountdownSeconds);
+	return id;
 }
 
 
@@ -609,20 +644,21 @@ SnapWindow::_CountdownTick()
 	}
 	delete fCountdownRunner;
 	fCountdownRunner = NULL;
-	_Capture();
+	_Capture(fCountdownPhotoId);
 }
 
 
 void
-SnapWindow::_Capture()
+SnapWindow::_Capture(int32 id)
 {
 	fStage->StopCountdown();
 	if (fSettings.flash) {
 		fStage->Flash();
 		fSoundEffects->PlayShutter();
 	}
-	// The render thread answers with kMsgPhotoTaken.
-	fStage->RequestPhoto();
+	// The render thread answers with kMsgPhotoTaken (or kMsgPhotoFailed)
+	// carrying the id.
+	fStage->RequestPhoto(id);
 	fShutter->SetEnabled(true);
 }
 
@@ -639,6 +675,7 @@ SnapWindow::_PhotoTaken(BMessage* message)
 	BMessage save(kMsgSavePhoto);
 	save.AddPointer("bitmap", bitmap);
 	save.AddString("effect", EffectAt(effect).name);
+	save.AddInt32("id", message->GetInt32("id", 0));
 	if (fLibrary->PostMessage(&save) != B_OK)
 		delete bitmap;
 }
@@ -653,34 +690,47 @@ SnapWindow::_PhotoSaved(BMessage* message)
 		path.SetTo(&ref);
 		fStrip->PhotoAdded(ref);
 	}
-
-	for (BMessage* request : fPhotoReplies) {
-		BMessage reply(B_REPLY);
-		reply.AddString("result", path.Path());
-		reply.AddInt32("error", B_OK);
-		request->SendReply(&reply);
-		delete request;
-	}
-	fPhotoReplies.clear();
+	_AnswerPhotoRequests(message->GetInt32("id", 0), path.Path(), NULL);
 }
 
 
 void
-SnapWindow::_PhotoFailed(const char* error)
+SnapWindow::_PhotoFailed(BMessage* message)
 {
-	for (BMessage* request : fPhotoReplies) {
-		BMessage reply(B_REPLY);
-		reply.AddString("message", error);
-		reply.AddInt32("error", B_ERROR);
-		request->SendReply(&reply);
-		delete request;
-	}
-	fPhotoReplies.clear();
+	const char* error = message->GetString("error", "The photo failed.");
+	_AnswerPhotoRequests(message->GetInt32("id", 0), NULL, error);
 
 	BAlert* alert = new BAlert("Snap", error, "OK", NULL, NULL,
 		B_WIDTH_AS_USUAL, B_WARNING_ALERT);
 	alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
 	alert->Go(NULL);
+}
+
+
+void
+SnapWindow::_AnswerPhotoRequests(int32 id, const char* path,
+	const char* error)
+{
+	// A request is answered by the first photo taken after it was made:
+	// photos asked for in the same frame are one.
+	for (size_t i = 0; i < fPhotoRequests.size();) {
+		PhotoRequest& request = fPhotoRequests[i];
+		if (request.id > id) {
+			i++;
+			continue;
+		}
+		BMessage reply(B_REPLY);
+		if (error == NULL) {
+			reply.AddString("result", path);
+			reply.AddInt32("error", B_OK);
+		} else {
+			reply.AddString("message", error);
+			reply.AddInt32("error", B_ERROR);
+		}
+		request.message->SendReply(&reply);
+		delete request.message;
+		fPhotoRequests.erase(fPhotoRequests.begin() + i);
+	}
 }
 
 
@@ -690,7 +740,7 @@ SnapWindow::_PhotoFailed(const char* error)
 void
 SnapWindow::_StartCamera()
 {
-	ListCameras(fCameras);
+	ListInputDevices(B_MEDIA_RAW_VIDEO, fCameras);
 	_UpdateCameraMenu();
 	if (fCameras.empty()) {
 		_CameraStatus("No camera is connected. The effects run on a test "
@@ -699,11 +749,8 @@ SnapWindow::_StartCamera()
 	}
 
 	// The camera used last time, else the system's default one.
-	const CameraInfo* chosen = &fCameras[0];
-	for (const CameraInfo& camera : fCameras) {
-		if (camera.name == fSettings.camera)
-			chosen = &camera;
-	}
+	const InputDevice* chosen = ChooseInputDevice(fCameras,
+		fSettings.camera.String());
 	BString status("Starting \xE2\x80\x9C");	// “
 	status << chosen->name << "\xE2\x80\x9D" B_UTF8_ELLIPSIS;	// ”
 	_CameraStatus(status.String(), true);
@@ -716,8 +763,8 @@ SnapWindow::_CamerasChanged(BMessage* message)
 {
 	// Many nodes come and go (every program that plays a sound makes some,
 	// and so does Snap): only a change in the list of cameras matters.
-	std::vector<CameraInfo> cameras;
-	ListCameras(cameras);
+	std::vector<InputDevice> cameras;
+	ListInputDevices(B_MEDIA_RAW_VIDEO, cameras);
 	bool same = cameras.size() == fCameras.size();
 	for (size_t i = 0; same && i < cameras.size(); i++)
 		same = cameras[i].node.node == fCameras[i].node.node;
@@ -725,7 +772,7 @@ SnapWindow::_CamerasChanged(BMessage* message)
 		return;
 
 	bool ours = false;
-	for (const CameraInfo& camera : cameras)
+	for (const InputDevice& camera : cameras)
 		ours |= fCameraRunning && camera.name == fCamera->Name();
 	if (fCameraRunning && !ours) {
 		// Our camera was unplugged.
@@ -750,7 +797,7 @@ SnapWindow::_UpdateCameraMenu()
 		if (item != fMirrorItem && item != fCountdownItem && item != fFlashItem)
 			delete item;
 	}
-	for (const CameraInfo& camera : fCameras) {
+	for (const InputDevice& camera : fCameras) {
 		BMessage* message = new BMessage(kMsgSelectCamera);
 		message->AddString("name", camera.name);
 		fCameraMenu->AddItem(new BMenuItem(camera.name.String(), message));
@@ -822,7 +869,7 @@ SnapWindow::_SetSoundSource(SoundSource source, const entry_ref* music)
 		case kSoundMicrophone:
 			// It reports back with kMsgSoundStatus.
 			fMeter->SetActive(false);
-			fMicrophone->Start();
+			fMicrophone->Start(fSettings.microphone.String());
 			break;
 		case kSoundMusic:
 		{
@@ -874,9 +921,30 @@ SnapWindow::_UpdateSoundControls()
 
 
 void
-SnapWindow::PlayMusic(const entry_ref& ref)
+SnapWindow::_UpdateSoundInputMenu()
 {
-	_SetSoundSource(kSoundMusic, &ref);
+	std::vector<InputDevice> inputs;
+	ListInputDevices(B_MEDIA_RAW_AUDIO, inputs);
+	const InputDevice* chosen = ChooseInputDevice(inputs,
+		fSettings.microphone.String());
+
+	while (BMenuItem* item = fSoundInputMenu->RemoveItem((int32)0))
+		delete item;
+	for (const InputDevice& input : inputs) {
+		BMessage* message = new BMessage(kMsgSelectSoundInput);
+		message->AddString("name", input.name);
+		BString label(input.name);
+		if (input.isDefault)
+			label << " (default)";
+		BMenuItem* item = new BMenuItem(label.String(), message);
+		item->SetMarked(&input == chosen);
+		fSoundInputMenu->AddItem(item);
+	}
+	if (inputs.empty()) {
+		BMenuItem* none = new BMenuItem("No Sound Input", NULL);
+		none->SetEnabled(false);
+		fSoundInputMenu->AddItem(none);
+	}
 }
 
 
@@ -1019,8 +1087,8 @@ SnapWindow::_HandleScripting(BMessage* message)
 		reply.AddInt32("result", (int32)fSound->Snapshot().beatCount);
 	} else if (name == "Photo") {
 		// Answered by _PhotoSaved() once the file is written.
-		fPhotoReplies.push_back(DetachCurrentMessage());
-		_TakePhoto();
+		const int32 id = _TakePhoto();
+		fPhotoRequests.push_back(PhotoRequest{ id, DetachCurrentMessage() });
 		return true;
 	} else if (name == "Photos") {
 		reply.AddInt32("result", fStrip->CountPhotos());

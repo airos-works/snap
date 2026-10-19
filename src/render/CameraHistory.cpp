@@ -45,7 +45,7 @@ CameraHistory::_Allocate(int width, int height)
 		glGenTextures(1, &fTexture);
 		glGenFramebuffers(1, &fFramebuffer);
 	}
-	glBindTexture(GL_TEXTURE_2D_ARRAY, fTexture);
+	BindForUpdate(GL_TEXTURE_2D_ARRAY, fTexture);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);

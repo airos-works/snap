@@ -67,7 +67,7 @@ private:
 
 			void				_Rescan();
 	static	bool				_IsPicture(const BEntry& entry);
-			void				_RequestThumbnails();
+			void				_RequestThumbnails(BRect area);
 			BRect				_ItemFrame(int32 index) const;
 			int32				_ItemAt(BPoint where) const;
 			void				_UpdateScrollBar();

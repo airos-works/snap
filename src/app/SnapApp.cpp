@@ -24,7 +24,7 @@ const char* kAppSignature = "application/x-vnd.airOS-Snap";
 SnapApp::SnapApp()
 	:
 	BApplication(kAppSignature),
-	fWindow(NULL)
+	fLaunchRefs(B_REFS_RECEIVED)
 {
 	fSettings.Load();
 }
@@ -37,8 +37,12 @@ SnapApp::ReadyToRun()
 		Quit();
 		return;
 	}
-	fWindow = new SnapWindow(fSettings, fGPU.renderer);
-	fWindow->Show();
+	SnapWindow* window = new SnapWindow(fSettings, fGPU.renderer);
+	window->Show();
+	fWindow = BMessenger(window);
+	// Files Snap was opened with arrived before there was a window.
+	if (!fLaunchRefs.IsEmpty())
+		fWindow.SendMessage(&fLaunchRefs);
 }
 
 
@@ -98,12 +102,13 @@ SnapApp::AboutRequested()
 void
 SnapApp::RefsReceived(BMessage* message)
 {
-	// Sound files dropped on Snap's icon play for the effects.
-	entry_ref ref;
-	if (fWindow != NULL && message->FindRef("refs", &ref) == B_OK
-		&& fWindow->Lock()) {
-		fWindow->PlayMusic(ref);
-		fWindow->Unlock();
+	// Sound files opened with Snap play for the effects; the window does it.
+	if (fWindow.IsValid())
+		fWindow.SendMessage(message);
+	else {
+		entry_ref ref;
+		for (int32 i = 0; message->FindRef("refs", i, &ref) == B_OK; i++)
+			fLaunchRefs.AddRef("refs", &ref);
 	}
 }
 
@@ -117,8 +122,8 @@ SnapApp::ResolveSpecifier(BMessage* message, int32 index, BMessage* specifier,
 	// here, so the message is passed on the way BApplication passes on
 	// "Window" specifiers: sent to the window's looper (which then replies
 	// to the original sender), and NULL returned.
-	if (fWindow != NULL && SnapWindow::HasProperty(property)) {
-		BMessenger(fWindow).SendMessage(message);
+	if (fWindow.IsValid() && SnapWindow::HasProperty(property)) {
+		fWindow.SendMessage(message);
 		return NULL;
 	}
 	return BApplication::ResolveSpecifier(message, index, specifier, what,

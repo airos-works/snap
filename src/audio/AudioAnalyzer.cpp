@@ -157,6 +157,7 @@ AudioAnalyzer::Reset()
 	fHistoryFill = 0;
 	fSinceAnalysis = 0;
 	fFluxCount = 0;
+	fFluxIndex = 0;
 	fLevelPeak = kMinLevelPeak;
 	fBassPeak = fMidPeak = fTreblePeak = kMinBandPeak;
 	fSpectrumPeak = kMinSpectrumPeakDb;

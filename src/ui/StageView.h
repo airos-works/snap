@@ -48,7 +48,7 @@ public:
 			void				StartCountdown(int32 seconds);
 			void				StopCountdown();
 			void				Flash();
-			void				RequestPhoto();
+			void				RequestPhoto(int32 id);
 			StageState			State() const;
 
 	// Ends the render thread; the window calls it before it closes.

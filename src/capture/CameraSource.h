@@ -44,6 +44,9 @@ public:
 			void				Stop();
 
 			const BString&		Name() const { return fName; }
+	// Counts the attempts to start; reports carry the one they belong to,
+	// so the window can ignore those of an attempt given up since.
+			int32				Generation() const { return fGeneration; }
 
 private:
 	static	status_t			_StartThread(void* data);
@@ -62,6 +65,7 @@ private:
 			media_node			fNode;
 			BString				fName;
 			thread_id			fStartThread;
+			int32				fGeneration;
 };
 
 

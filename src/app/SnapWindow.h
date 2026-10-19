@@ -72,20 +72,20 @@ public:
 	// Snap's own scripting properties, which the application passes on.
 	static	bool				HasProperty(const char* property);
 
-			void				PlayMusic(const entry_ref& ref);
-
 private:
 			BMenuBar*			_BuildMenuBar();
 			BView*				_BuildControls();
 
 			void				_SelectEffect(int32 index);
 			void				_SetGrid(bool grid);
-			void				_TakePhoto();
+			int32				_TakePhoto();
 			void				_CountdownTick();
-			void				_Capture();
+			void				_Capture(int32 id);
 			void				_PhotoTaken(BMessage* message);
 			void				_PhotoSaved(BMessage* message);
-			void				_PhotoFailed(const char* error);
+			void				_PhotoFailed(BMessage* message);
+			void				_AnswerPhotoRequests(int32 id,
+									const char* path, const char* error);
 
 			void				_StartCamera();
 			void				_CamerasChanged(BMessage* message);
@@ -98,6 +98,7 @@ private:
 									const entry_ref* music = NULL);
 			void				_ChooseMusic();
 			void				_UpdateSoundControls();
+			void				_UpdateSoundInputMenu();
 
 			bool				_HandleScripting(BMessage* message);
 
@@ -128,20 +129,27 @@ private:
 			BMenuItem*			fCountdownItem;
 			BMenuItem*			fFlashItem;
 			BMenu*				fSoundMenu;
+			BMenu*				fSoundInputMenu;
 
 			BFilePanel*			fMusicPanel;
 			BMessageRunner*		fCountdownRunner;
 			int32				fCountdownLeft;
+			int32				fCountdownPhotoId;
+			int32				fLastPhotoId;
 			int32				fEffect;
 			bool				fGrid;
-			std::vector<CameraInfo> fCameras;
+			std::vector<InputDevice> fCameras;
 			bool				fCameraRunning;
 			bool				fWatchingMedia;
 			BString				fCameraStatus;
 			BString				fSoundStatus;
 
 			// "do Photo" scripting requests, answered once the file exists.
-			std::vector<BMessage*> fPhotoReplies;
+			struct PhotoRequest {
+				int32			id;			// the photo that answers it
+				BMessage*		message;
+			};
+			std::vector<PhotoRequest> fPhotoRequests;
 };
 
 

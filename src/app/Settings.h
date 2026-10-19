@@ -31,13 +31,14 @@ public:
 			status_t			Load();
 			status_t			Save() const;
 
-			BString				effect;			// Effect::Id() of the live effect
+			BString				effect;			// EffectInfo::id of the live effect
 			bool				mirror;			// show the camera like a mirror
 			bool				countdown;		// 3-2-1 before a photo
 			bool				flash;			// white screen flash and shutter sound
 			SoundSource			soundSource;
 			BString				musicPath;		// last soundtrack played
 			BString				camera;			// name of the chosen camera node
+			BString				microphone;		// name of the chosen sound input
 			BRect				windowFrame;	// invalid until the window moved
 
 private:

@@ -14,16 +14,19 @@ namespace snap {
 
 
 void
-ListCameras(std::vector<CameraInfo>& cameras)
+ListInputDevices(media_type type, std::vector<InputDevice>& devices)
 {
-	cameras.clear();
+	devices.clear();
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL)
 		return;
 
 	media_format format;
-	format.type = B_MEDIA_RAW_VIDEO;
-	format.u.raw_video = media_raw_video_format::wildcard;
+	format.type = type;
+	if (type == B_MEDIA_RAW_VIDEO)
+		format.u.raw_video = media_raw_video_format::wildcard;
+	else
+		format.u.raw_audio = media_raw_audio_format::wildcard;
 
 	live_node_info nodes[32];
 	int32 count = 32;
@@ -32,24 +35,36 @@ ListCameras(std::vector<CameraInfo>& cameras)
 		return;
 	}
 
-	// The default video input, as chosen in Media preferences.
+	// The default input, as chosen in Media preferences.
 	media_node defaultNode;
 	media_node_id defaultId = -1;
-	if (roster->GetVideoInput(&defaultNode) == B_OK) {
+	if ((type == B_MEDIA_RAW_VIDEO ? roster->GetVideoInput(&defaultNode)
+			: roster->GetAudioInput(&defaultNode)) == B_OK) {
 		defaultId = defaultNode.node;
 		roster->ReleaseNode(defaultNode);
 	}
 
 	for (int32 i = 0; i < count; i++) {
-		CameraInfo camera;
-		camera.name = nodes[i].name;
-		camera.node = nodes[i].node;
-		camera.isDefault = nodes[i].node.node == defaultId;
-		if (camera.isDefault)
-			cameras.insert(cameras.begin(), camera);
+		InputDevice device;
+		device.name = nodes[i].name;
+		device.node = nodes[i].node;
+		device.isDefault = nodes[i].node.node == defaultId;
+		if (device.isDefault)
+			devices.insert(devices.begin(), device);
 		else
-			cameras.push_back(camera);
+			devices.push_back(device);
 	}
+}
+
+
+const InputDevice*
+ChooseInputDevice(const std::vector<InputDevice>& devices, const char* name)
+{
+	for (const InputDevice& device : devices) {
+		if (name != NULL && device.name == name)
+			return &device;
+	}
+	return devices.empty() ? NULL : &devices[0];
 }
 
 

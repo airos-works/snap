@@ -121,10 +121,12 @@ PhotoLibrary::_Save(BMessage* message)
 	if (status == B_OK) {
 		BMessage saved(kMsgPhotoSaved);
 		saved.AddRef("refs", &ref);
+		saved.AddInt32("id", message->GetInt32("id", 0));
 		fWindow.SendMessage(&saved);
 	} else {
 		BMessage failed(kMsgPhotoFailed);
 		failed.AddString("error", error);
+		failed.AddInt32("id", message->GetInt32("id", 0));
 		fWindow.SendMessage(&failed);
 	}
 }
@@ -203,7 +205,9 @@ PhotoLibrary::_WriteThumbnail(BNode& node, const BBitmap* picture)
 			B_WEBP_FORMAT) == B_OK) {
 		node.WriteAttr(kAttrThumbnail, B_RAW_TYPE, 0, webp.Buffer(),
 			webp.BufferLength());
-		const int64 created = real_time_clock();
+		// Tracker keeps a thumbnail only when it is newer than the file
+		// (in whole seconds), and the file was written this very second.
+		const int64 created = real_time_clock() + 1;
 		node.WriteAttr(kAttrThumbnailCreationTime, B_TIME_TYPE, 0, &created,
 			sizeof(created));
 	}

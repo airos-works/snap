@@ -13,6 +13,10 @@
 //
 // All of these must be used on the thread that holds the BGLView's context
 // (between LockGL() and UnlockGL()).
+//
+// Texture units: creating and filling textures binds them on a scratch unit
+// of its own (BindForUpdate()), so that it never replaces a texture that is
+// bound for drawing. Drawing code binds what it reads to explicit units.
 
 #define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
@@ -170,6 +174,10 @@ private:
 			GLint				fViewport[4];
 };
 
+
+// Makes the scratch texture unit active and binds texture to it, for
+// creating or filling the texture.
+void BindForUpdate(GLenum target, GLuint texture);
 
 // Reports and clears OpenGL errors; returns true when there were any.
 bool CheckGLError(const char* where);

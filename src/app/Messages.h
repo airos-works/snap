@@ -28,6 +28,7 @@ enum {
 	kMsgSelectCamera		= 'slcm',	// "name" string
 	kMsgSoundOff			= 'sdof',
 	kMsgSoundMicrophone		= 'sdmc',
+	kMsgSelectSoundInput	= 'sdin',	// "name" string
 	kMsgSoundMusic			= 'sdmu',	// optional "refs"
 	kMsgChooseMusic			= 'chmu',
 	kMsgOpenPhotoFolder		= 'opfd',

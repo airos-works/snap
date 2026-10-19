@@ -18,17 +18,22 @@ class BMediaRoster;
 namespace snap {
 
 
-// A camera the media_server knows: any live node that produces raw video
-// and stands for a physical input.
-struct CameraInfo {
+// A camera or a sound input the media_server knows: a live node that
+// produces raw video or raw audio and stands for a physical input.
+struct InputDevice {
 	BString				name;
 	media_node			node;
 	bool				isDefault;	// the one set in Media preferences
 };
 
 
-// Lists the cameras, the default one first.
-void ListCameras(std::vector<CameraInfo>& cameras);
+// Lists the inputs of a type (B_MEDIA_RAW_VIDEO for cameras,
+// B_MEDIA_RAW_AUDIO for microphones), the default one first.
+void ListInputDevices(media_type type, std::vector<InputDevice>& devices);
+
+// The device called name, else the default one; NULL when there are none.
+const InputDevice* ChooseInputDevice(const std::vector<InputDevice>& devices,
+	const char* name);
 
 
 // Finds a free output of the given type on a node. A program that ended

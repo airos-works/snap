@@ -41,7 +41,7 @@ struct StageState {
 			int32		countdownLength; // in seconds
 			bigtime_t	flashStart;		// 0 when not flashing
 			BString		status;			// a line at the bottom, or empty
-			int32		photoRequest;	// bumped by one to take a photo
+			int32		photoRequest;	// the id of the latest photo asked for
 			rgb_color	accent;
 
 						StageState();
@@ -60,8 +60,9 @@ struct StageState {
 //  2. the sound features (SoundAnalysis) go into a small float texture;
 //  3. every effect on screen draws into its own offscreen RenderTarget;
 //  4. those are composited onto the view, with the overlays;
-//  5. when a photo was asked for, the shown effect's target is read back
-//     into a BBitmap and sent to the window as kMsgPhotoTaken.
+//  5. when a photo was asked for, and the effect has been on the big stage
+//     for half a second, its target is read back into a BBitmap and sent to
+//     the window as kMsgPhotoTaken.
 class StageRenderer {
 public:
 								StageRenderer(FrameExchange& frames,
@@ -76,6 +77,9 @@ public:
 	// The grid cell at a point of the view, as last drawn; -1 for none.
 	// Thread safe.
 			int32				CellAt(BPoint point) const;
+
+	// The id of the last photo taken (StageState::photoRequest).
+			int32				PhotoTaken() const { return fPhotoTaken; }
 
 private:
 			struct Box {
@@ -94,16 +98,20 @@ private:
 				bool			ready;		// built without errors
 				uint32			lastFrame;	// when it last drew
 				bigtime_t		shownSince;
+				bigtime_t		sizedSince;	// output (re)created
 			};
 
 			bool				_UpdateCamera(const StageState& state,
 									bigtime_t now);
+			void				_PictureSourceChanged(bigtime_t now);
 			void				_UpdateSound(bigtime_t now, float delta);
 			void				_Layout(const StageState& state, int width,
 									int height);
 			void				_RenderEffects(const StageState& state,
 									bigtime_t now, float delta,
 									bool newPicture);
+			bool				_ReadyForPhoto(const StageState& state,
+									bigtime_t now) const;
 			void				_TakePhoto(const StageState& state);
 
 			void				_DrawStage(const StageState& state,
@@ -140,6 +148,7 @@ private:
 			RenderTarget		fCamera[2];
 			int					fCurrentCamera;
 			bool				fHasPicture;
+			bool				fShowingPlaceholder;
 			CameraHistory		fHistory;
 			bool				fHistoryInUse;
 
@@ -156,7 +165,7 @@ private:
 			uint32				fFrameNumber;
 			bigtime_t			fStartTime;
 			bigtime_t			fLastFrame;
-			int32				fPhotoRequest;
+			int32				fPhotoTaken;
 			bool				fLiveShaders;	// SNAP_SHADER_DIR is set
 
 			// The layout of the last frame, in view coordinates.

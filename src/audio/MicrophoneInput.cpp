@@ -11,6 +11,8 @@
 #include <MediaRoster.h>
 #include <TimeSource.h>
 
+#include <vector>
+
 #include "SoundAnalysis.h"
 #include "app/Messages.h"
 #include "capture/MediaNodes.h"
@@ -26,8 +28,9 @@ MicrophoneInput::MicrophoneInput(SoundAnalysis& analysis,
 	fTarget(target),
 	fLock("microphone"),
 	fRecorder(NULL),
-	fHasInput(false),
-	fStartThread(-1)
+	fStartedInput(false),
+	fStartThread(-1),
+	fGeneration(0)
 {
 }
 
@@ -39,10 +42,12 @@ MicrophoneInput::~MicrophoneInput()
 
 
 void
-MicrophoneInput::Start()
+MicrophoneInput::Start(const char* preferredInput)
 {
 	if (fStartThread >= 0 || fRecorder != NULL)
 		return;
+	fPreferredInput = preferredInput;
+	fGeneration++;
 	fStartThread = spawn_thread(&_StartThread, "Snap microphone",
 		B_NORMAL_PRIORITY, this);
 	if (fStartThread >= 0)
@@ -58,6 +63,8 @@ MicrophoneInput::Stop()
 		wait_for_thread(fStartThread, &result);
 		fStartThread = -1;
 	}
+	// What the start thread reported is out of date now.
+	fGeneration++;
 
 	BMediaRecorder* recorder;
 	{
@@ -71,11 +78,20 @@ MicrophoneInput::Stop()
 		recorder->Stop();
 		recorder->Disconnect();
 		delete recorder;
+
+		// An input that is nothing but a microphone (a USB one) was started
+		// for Snap: stop it again when nobody else records from it. A sound
+		// card that also plays keeps running.
+		BMediaRoster* roster = BMediaRoster::CurrentRoster();
+		media_output outputs[4];
+		int32 count = 0;
+		if (fStartedInput && roster != NULL
+			&& roster->GetConnectedOutputsFor(fInput, outputs, 4, &count) == B_OK
+			&& count == 0) {
+			roster->StopNode(fInput, 0, true);
+		}
 	}
-	if (fHasInput) {
-		BMediaRoster::Roster()->ReleaseNode(fInput);
-		fHasInput = false;
-	}
+	fStartedInput = false;
 	fAnalysis.Reset();
 }
 
@@ -96,16 +112,21 @@ MicrophoneInput::_Connect()
 		return B_ERROR;
 	}
 
-	media_node input;
-	if (roster->GetAudioInput(&input) != B_OK) {
+	std::vector<InputDevice> inputs;
+	ListInputDevices(B_MEDIA_RAW_AUDIO, inputs);
+	const InputDevice* chosen = ChooseInputDevice(inputs,
+		fPreferredInput.String());
+	if (chosen == NULL) {
 		_Report("There is no sound input.", false);
 		return B_ERROR;
 	}
+	const media_node input = chosen->node;
 
 	media_output output;
 	if (!FindFreeOutput(roster, input, B_MEDIA_RAW_AUDIO, output)) {
-		roster->ReleaseNode(input);
-		_Report("The microphone is in use by another application.", false);
+		BString text("\xE2\x80\x9C");
+		text << chosen->name << "\xE2\x80\x9D is in use by another application.";
+		_Report(text.String(), false);
 		return B_BUSY;
 	}
 
@@ -130,6 +151,7 @@ MicrophoneInput::_Connect()
 				roster->StartNode(input, timeSource->Now());
 				timeSource->Release();
 			}
+			fStartedInput = (input.kind & B_PHYSICAL_OUTPUT) == 0;
 		}
 	}
 
@@ -137,7 +159,6 @@ MicrophoneInput::_Connect()
 		if (recorder->IsConnected())
 			recorder->Disconnect();
 		delete recorder;
-		roster->ReleaseNode(input);
 		BString text("The microphone could not be opened: ");
 		text << strerror(status) << ".";
 		_Report(text.String(), false);
@@ -148,9 +169,10 @@ MicrophoneInput::_Connect()
 		BAutolock _(fLock);
 		fRecorder = recorder;
 		fInput = input;
-		fHasInput = true;
 	}
-	_Report("Listening to the microphone", true);
+	BString text("Listening to \xE2\x80\x9C");
+	text << chosen->name << "\xE2\x80\x9D";
+	_Report(text.String(), true);
 	return B_OK;
 }
 
@@ -173,6 +195,7 @@ MicrophoneInput::_Report(const char* status, bool listening)
 	BMessage message(kMsgSoundStatus);
 	message.AddString("status", status);
 	message.AddBool("listening", listening);
+	message.AddInt32("generation", fGeneration);
 	fTarget.SendMessage(&message);
 }
 
