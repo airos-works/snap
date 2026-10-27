@@ -1,6 +1,6 @@
 # Builds air/OS packages (x86_64 and arm64) on every push to main and publishes
 # them to the rolling "latest" release, with links in the README.
-# The pipeline itself lives in jmgasper/airos-ci; the air/OS images take Snap
+# The pipeline itself lives in airos-works/airos-ci; the air/OS images take Snap
 # from its package pool.
 name: air/OS build
 
@@ -11,7 +11,7 @@ on:
 
 jobs:
   airos:
-    uses: jmgasper/airos-ci/.github/workflows/app.yml@main
+    uses: airos-works/airos-ci/.github/workflows/app.yml@main
     with:
       app: snap
       repo-dir: snap
